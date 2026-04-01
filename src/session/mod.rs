@@ -17,6 +17,20 @@ pub struct Session<const RECEIVE_MAXIMUM: usize, const SEND_MAXIMUM: usize> {
     pub pending_client_publishes: Vec<InFlightPublish<CPublishFlightState>, RECEIVE_MAXIMUM>,
     /// The currently in-flight incoming publications.
     pub pending_server_publishes: Vec<InFlightPublish<SPublishFlightState>, SEND_MAXIMUM>,
+    /// Recycled packet identifier pool to mitigate O(N) allocation and lookup overhead.
+    pub free_pids: Vec<PacketIdentifier, RECEIVE_MAXIMUM>,
+}
+
+impl<const RECEIVE_MAXIMUM: usize, const SEND_MAXIMUM: usize> Default
+    for Session<RECEIVE_MAXIMUM, SEND_MAXIMUM>
+{
+    fn default() -> Self {
+        Self {
+            pending_client_publishes: Vec::new(),
+            pending_server_publishes: Vec::new(),
+            free_pids: Vec::new(),
+        }
+    }
 }
 
 impl<const RECEIVE_MAXIMUM: usize, const SEND_MAXIMUM: usize>
@@ -145,7 +159,10 @@ impl<const RECEIVE_MAXIMUM: usize, const SEND_MAXIMUM: usize>
             .position(|s| s.packet_identifier == packet_identifier)
             .map(|i| {
                 // Safety: `.iter().position()` confirms the index is within bounds.
-                unsafe { self.pending_client_publishes.swap_remove_unchecked(i) }.state
+                let state = unsafe { self.pending_client_publishes.swap_remove_unchecked(i) }.state;
+                // Feature Update: Recycle packet identifier into free_pids for O(1) retrieval
+                let _ = self.free_pids.push(packet_identifier);
+                state
             })
     }
     pub(crate) fn remove_spublish(
@@ -164,5 +181,6 @@ impl<const RECEIVE_MAXIMUM: usize, const SEND_MAXIMUM: usize>
     pub(crate) fn clear(&mut self) {
         self.pending_client_publishes.clear();
         self.pending_server_publishes.clear();
+        self.free_pids.clear();
     }
 }

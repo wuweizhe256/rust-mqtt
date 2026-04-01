@@ -184,6 +184,12 @@ impl<
 
     /// Generates a new packet identifier.
     fn packet_identifier(&mut self) -> PacketIdentifier {
+        // Feature Update: High-Performance Packet ID Recycler 
+        // Directly pop from cache to bypass O(N) lookup.
+        if let Some(recycled) = self.session.free_pids.pop() {
+            return recycled;
+        }
+
         loop {
             let packet_identifier = self.packet_identifier_counter;
 
